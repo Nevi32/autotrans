@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dual Database Inventory Viewer</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            line-height: 1.4;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .database-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+        .database-tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+            margin-right: 5px;
+            background: #f8f9fa;
+        }
+        .database-tab.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .database-tab.auto2.active {
+            background: #28a745;
+            border-color: #28a745;
+        }
+        .database-content {
+            display: none;
+        }
+        .database-content.active {
+            display: block;
+        }
+        .db-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .auto1-indicator { background: #007bff; }
+        .auto2-indicator { background: #28a745; }
+        .auth-status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .auth-status.authenticated {
+            background: #d4edda;
+            color: #155724;
+        }
+        .auth-status.unauthenticated {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status { 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .loading { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dual Database Inventory Viewer</h1>
+        
+        <!-- Database Selection Tabs -->
+        <div class="database-tabs">
+            <div class="database-tab active" onclick="switchDatabase('auto1')">
+                <span class="db-indicator auto1-indicator"></span>
+                Auto1 DB (Inventory)
+                <span id="auto1-auth-status" class="auth-status unauthenticated">Not Logged In</span>
+            </div>
+            <div class="database-tab auto2" onclick="switchDatabase('auto2')">
+                <span class="db-indicator auto2-indicator"></span>
+                Auto2 DB (Products/Variants)
+                <span id="auto2-auth-status" class="auth-status unauthenticated">Not Logged In</span>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="status"></div>
+
+        <!-- Auto1 Database Content (Loaded via iframe) -->
+        <div id="auto1-content" class="database-content active">
+            <iframe id="auto1-iframe" src="auto1.html" style="width: 100%; height: 800px; border: none;"></iframe>
+        </div>
+
+        <!-- Auto2 Database Content (Loaded via iframe) -->
+        <div id="auto2-content" class="database-content">
+            <iframe id="auto2-iframe" src="auto2.html" style="width: 100%; height: 800px; border: none;"></iframe>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for cross-frame communication
+        window.currentDatabase = 'auto1';
+        window.auto1User = null;
+        window.auto2User = null;
+
+        // Database switching function
+        function switchDatabase(database) {
+            window.currentDatabase = database;
+            
+            // Update tabs
+            document.querySelectorAll('.database-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.database-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            const activeTab = document.querySelector(`.database-tab:nth-child(${database === 'auto1' ? 1 : 2})`);
+            activeTab.classList.add('active');
+            document.getElementById(`${database}-content`).classList.add('active');
+            
+            showStatus(`Switched to ${database.toUpperCase()} database`, 'success');
+        }
+
+        // Status display function
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            
+            // Auto-clear success messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.textContent = '';
+                    statusDiv.className = 'status';
+                }, 5000);
+            }
+        }
+
+        // Update authentication status display
+        function updateAuthStatusDisplay() {
+            const auto1Status = document.getElementById('auto1-auth-status');
+            const auto2Status = document.getElementById('auto2-auth-status');
+            
+            if (window.auto1User) {
+                auto1Status.textContent = 'Logged In';
+                auto1Status.className = 'auth-status authenticated';
+            } else {
+                auto1Status.textContent = 'Not Logged In';
+                auto1Status.className = 'auth-status unauthenticated';
+            }
+            
+            if (window.auto2User) {
+                auto2Status.textContent = 'Logged In';
+                auto2Status.className = 'auth-status authenticated';
+            } else {
+                auto2Status.textContent = 'Not Logged In';
+                auto2Status.className = 'auth-status unauthenticated';
+            }
+        }
+
+        // Listen for messages from iframes
+        window.addEventListener('message', function(event) {
+            const data = event.data;
+            
+            if (data.type === 'authUpdate') {
+                if (data.database === 'auto1') {
+                    window.auto1User = data.user;
+                } else if (data.database === 'auto2') {
+                    window.auto2User = data.user;
+                }
+                updateAuthStatusDisplay();
+            } else if (data.type === 'status') {
+                showStatus(data.message, data.statusType);
+            }
+        });
+
+        // Initialize auth status display
+        updateAuthStatusDisplay();
+    </script>
+</body>
+</html>
