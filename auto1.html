@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto1 Database</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0;
+            padding: 20px;
+            line-height: 1.4;
+        }
+        .auth-section { 
+            margin-bottom: 20px; 
+            padding: 15px; 
+            border: 1px solid #ccc; 
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        .controls { margin: 10px 0; }
+        button { 
+            padding: 8px 16px; 
+            margin: 5px; 
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        input, select { 
+            padding: 8px; 
+            margin: 5px; 
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .product-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .product-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .product-item:hover {
+            background: #f0f0f0;
+        }
+        .product-item.selected {
+            background: #007bff;
+            color: white;
+        }
+        .search-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+        }
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 10px 0;
+        }
+        .results-info {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+            border-left: 4px solid #007bff;
+        }
+        .product-section {
+            margin: 15px 0;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            text-align: left; 
+            vertical-align: top;
+        }
+        th { background: #f8f9fa; position: sticky; top: 0; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        tr:hover { background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <!-- Authentication Section -->
+    <div class="auth-section">
+        <h3>Auto1 Database Authentication</h3>
+        <div>
+            <input type="email" id="auto1-email" placeholder="Auto1 Email">
+            <input type="password" id="auto1-password" placeholder="Auto1 Password">
+            <button onclick="loginAuto1()">Login to Auto1</button>
+            <button onclick="logoutAuto1()" disabled id="auto1-logoutBtn">Logout from Auto1</button>
+        </div>
+    </div>
+
+    <!-- Product Selection Section -->
+    <div class="product-section" id="productSection" style="display: none;">
+        <div class="section-title">Auto1: Select a Product</div>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <button onclick="fetchProductList()" id="refreshProductsBtn">Refresh Product List</button>
+            <input type="text" id="productSearch" placeholder="Search products..." style="flex: 1;">
+            <span id="productCount" style="padding: 8px; color: #666;">0 products found</span>
+        </div>
+        <div class="product-list" id="productList"></div>
+    </div>
+
+    <!-- Search and Filters -->
+    <div class="search-section" id="filterSection" style="display: none;">
+        <div class="section-title">Auto1: Items for: <span id="selectedProductName" style="color: #007bff;"></span></div>
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <button onclick="clearFilters()">Clear Filters</button>
+            <input type="text" id="searchInput" placeholder="Search within items..." style="flex: 1;">
+            <select id="storeSelect">
+                <option value="">All Stores</option>
+            </select>
+            <button onclick="resetToProductSelection()">Change Product</button>
+        </div>
+        
+        <div class="filters">
+            <div>
+                <label>Color Filter:</label>
+                <input type="text" id="colorFilter" placeholder="Filter by color...">
+            </div>
+            <div>
+                <label>Size Filter:</label>
+                <input type="text" id="sizeFilter" placeholder="Filter by size...">
+            </div>
+            <div>
+                <label>AtNo Filter:</label>
+                <input type="text" id="atNoFilter" placeholder="Filter by AtNo...">
+            </div>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div id="auto1-results"></div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs, query, where, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // Database configuration
+        const DATABASE_CONFIG = {
+            apiKey: "AIzaSyD80v3mBIfPRfsjK-mt_gHr0-pYkvbXf7g",
+            authDomain: "footactionn.firebaseapp.com",
+            projectId: "footactionn",
+            storageBucket: "footactionn.firebasestorage.app",
+            messagingSenderId: "89580639624",
+            appId: "1:89580639624:web:83473e8b9409f079f5563d",
+            measurementId: "G-P807DCTHZR"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(DATABASE_CONFIG, 'auto1');
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Global variables
+        window.stores = [];
+        window.products = [];
+        window.filteredProducts = [];
+        window.selectedProduct = null;
+        window.currentItems = [];
+        window.isFetchingItems = false;
+
+        // Define the specific fields to display
+        const AUTO1_DISPLAY_FIELDS = [
+            { key: 'id', displayName: 'ID' },
+            { key: 'serialNo', displayName: 'Serial No' },
+            { key: 'AtNo', displayName: 'At No' },
+            { key: 'Product Name', displayName: 'Product Name' },
+            { key: 'Brand', displayName: 'Brand' },
+            { key: 'Color', displayName: 'Color' },
+            { key: 'Size', displayName: 'Size' },
+            { key: 'Price', displayName: 'Price' },
+            { key: 'Quantity', displayName: 'Quantity' },
+            { key: 'Gender', displayName: 'Gender' },
+            { key: 'Material', displayName: 'Material' },
+            { key: 'Style', displayName: 'Style' },
+            { key: 'storeId', displayName: 'Store ID' },
+            { key: 'setupName', displayName: 'Setup Name' }
+        ];
+
+        // Authentication functions
+        window.loginAuto1 = async function() {
+            const email = document.getElementById('auto1-email').value;
+            const password = document.getElementById('auto1-password').value;
+            
+            if (!email || !password) {
+                sendStatus('Please enter Auto1 email and password', 'error');
+                return;
+            }
+
+            sendStatus('Logging into Auto1 database...', 'loading');
+            
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                document.getElementById('auto1-logoutBtn').disabled = false;
+                sendAuthUpdate(userCredential.user);
+                sendStatus('Successfully logged into Auto1 database!', 'success');
+                
+                initializeAuto1();
+            } catch (error) {
+                sendStatus('Auto1 login failed: ' + error.message, 'error');
+            }
+        };
+
+        window.logoutAuto1 = async function() {
+            try {
+                await signOut(auth);
+                document.getElementById('auto1-logoutBtn').disabled = true;
+                sendAuthUpdate(null);
+                sendStatus('Logged out from Auto1 database', 'success');
+                
+                // Reset interface
+                document.getElementById('productSection').style.display = 'none';
+                document.getElementById('filterSection').style.display = 'none';
+                document.getElementById('auto1-results').innerHTML = '';
+            } catch (error) {
+                sendStatus('Auto1 logout failed: ' + error.message, 'error');
+            }
+        };
+
+        // Send auth update to parent
+        function sendAuthUpdate(user) {
+            window.parent.postMessage({
+                type: 'authUpdate',
+                database: 'auto1',
+                user: user
+            }, '*');
+        }
+
+        // Send status to parent
+        function sendStatus(message, type) {
+            window.parent.postMessage({
+                type: 'status',
+                message: message,
+                statusType: type
+            }, '*');
+        }
+
+        // Initialize Auto1 interface
+        function initializeAuto1() {
+            document.getElementById('productSection').style.display = 'block';
+            loadStores();
+            fetchProductList();
+        }
+
+        // Load stores from business document
+        async function loadStores() {
+            try {
+                const user = auth.currentUser;
+                if (!user) return;
+                
+                const businessRef = doc(db, 'business', user.uid);
+                const businessDoc = await getDoc(businessRef);
+                
+                if (businessDoc.exists()) {
+                    const businessData = businessDoc.data();
+                    window.stores = businessData.stores || [];
+                    
+                    const storeSelect = document.getElementById('storeSelect');
+                    storeSelect.innerHTML = '<option value="">All Stores</option>';
+                    
+                    window.stores.forEach(store => {
+                        const option = document.createElement('option');
+                        option.value = store.name;
+                        option.textContent = store.name;
+                        storeSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading stores:', error);
+                sendStatus('Error loading stores', 'error');
+            }
+        }
+
+        // Fetch unique product names from inventory
+        async function fetchProductList() {
+            try {
+                const user = auth.currentUser;
+                if (!user) {
+                    sendStatus('Please log in to Auto1 database', 'error');
+                    return;
+                }
+
+                sendStatus('Fetching product list from Auto1...', 'loading');
+                
+                const inventoryRef = collection(db, 'users', user.uid, 'inventory');
+                const querySnapshot = await getDocs(inventoryRef);
+                
+                const productSet = new Set();
+                querySnapshot.forEach((doc) => {
+                    const itemData = doc.data();
+                    const productName = itemData['Product Name'];
+                    if (productName && productName.trim() !== '') {
+                        productSet.add(productName.trim());
+                    }
+                });
+                
+                window.products = Array.from(productSet).sort();
+                window.filteredProducts = [...window.products];
+                
+                updateProductListDisplay();
+                sendStatus(`Found ${window.products.length} unique products in Auto1`, 'success');
+                
+            } catch (error) {
+                console.error('Error fetching product list:', error);
+                sendStatus('Error fetching product list: ' + error.message, 'error');
+            }
+        }
+
+        // Update the product list display
+        function updateProductListDisplay() {
+            const productList = document.getElementById('productList');
+            const productCount = document.getElementById('productCount');
+            
+            productList.innerHTML = '';
+            productCount.textContent = `${window.filteredProducts.length} products found`;
+            
+            if (window.filteredProducts.length === 0) {
+                productList.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No products found</div>';
+                return;
+            }
+            
+            window.filteredProducts.forEach(productName => {
+                const productItem = document.createElement('div');
+                productItem.className = 'product-item';
+                if (window.selectedProduct === productName) {
+                    productItem.className += ' selected';
+                }
+                productItem.textContent = productName;
+                productItem.onclick = () => selectProduct(productName);
+                productList.appendChild(productItem);
+            });
+        }
+
+        // Select a product and automatically fetch items
+        async function selectProduct(productName) {
+            if (window.isFetchingItems) return;
+            
+            window.selectedProduct = productName;
+            updateProductListDisplay();
+            
+            // Show filter section
+            document.getElementById('filterSection').style.display = 'block';
+            document.getElementById('selectedProductName').textContent = productName;
+            
+            // Clear previous results
+            document.getElementById('auto1-results').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Fetching items...</div>';
+            
+            // Automatically fetch items for the selected product
+            await fetchItemsForSelectedProduct();
+        }
+
+        // Reset to product selection
+        function resetToProductSelection() {
+            window.selectedProduct = null;
+            window.currentItems = [];
+            document.getElementById('filterSection').style.display = 'none';
+            document.getElementById('auto1-results').innerHTML = '';
+            updateProductListDisplay();
+            clearFilters();
+            sendStatus('Select a different product', 'success');
+        }
+
+        // Fetch items for the selected product
+        async function fetchItemsForSelectedProduct() {
+            const user = auth.currentUser;
+            if (!user || !window.selectedProduct) {
+                sendStatus('Please select a product first', 'error');
+                return;
+            }
+
+            if (window.isFetchingItems) return;
+            window.isFetchingItems = true;
+
+            sendStatus(`Fetching all items for ${window.selectedProduct} from Auto1...`, 'loading');
+            
+            try {
+                const inventoryRef = collection(db, 'users', user.uid, 'inventory');
+                const q = query(inventoryRef, where('Product Name', '==', window.selectedProduct));
+                const querySnapshot = await getDocs(q);
+                
+                window.currentItems = [];
+                querySnapshot.forEach((doc) => {
+                    const itemData = doc.data();
+                    window.currentItems.push({
+                        id: doc.id,
+                        ...itemData
+                    });
+                });
+
+                // Apply any existing filters and display results
+                applyFiltersToCurrentItems();
+                sendStatus(`Found ${window.currentItems.length} items for ${window.selectedProduct} in Auto1`, 'success');
+                
+            } catch (error) {
+                console.error('Error fetching items:', error);
+                sendStatus('Error fetching items: ' + error.message, 'error');
+                document.getElementById('auto1-results').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Error loading items</div>';
+            } finally {
+                window.isFetchingItems = false;
+            }
+        }
+
+        // Clear filters function
+        window.clearFilters = function() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('colorFilter').value = '';
+            document.getElementById('sizeFilter').value = '';
+            document.getElementById('atNoFilter').value = '';
+            document.getElementById('storeSelect').value = '';
+            applyFiltersToCurrentItems();
+        };
+
+        // Apply filters to the currently loaded items
+        function applyFiltersToCurrentItems() {
+            if (window.currentItems.length === 0) {
+                document.getElementById('auto1-results').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No items loaded</div>';
+                return;
+            }
+
+            // Get filter values
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+            const colorFilter = document.getElementById('colorFilter').value.toLowerCase().trim();
+            const sizeFilter = document.getElementById('sizeFilter').value.toLowerCase().trim();
+            const atNoFilter = document.getElementById('atNoFilter').value.toLowerCase().trim();
+            const selectedStore = document.getElementById('storeSelect').value;
+
+            // Apply filters to current items
+            let filteredItems = window.currentItems.filter(item => {
+                // Store filter
+                if (selectedStore && item.storeId !== selectedStore && item.storeName !== selectedStore) {
+                    return false;
+                }
+                
+                // Additional search term filter
+                if (searchTerm) {
+                    const searchableFields = ['Brand', 'Color', 'Size', 'AtNo', 'serialNo', 'Gender', 'Material', 'Style', 'storeId', 'setupName'];
+                    let foundMatch = false;
+                    
+                    for (const field of searchableFields) {
+                        const fieldValue = String(item[field] || '').toLowerCase();
+                        if (fieldValue.includes(searchTerm)) {
+                            foundMatch = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!foundMatch) return false;
+                }
+                
+                // Color filter
+                if (colorFilter && !(item.Color || '').toLowerCase().includes(colorFilter)) {
+                    return false;
+                }
+                
+                // Size filter
+                if (sizeFilter && !String(item.Size || '').toLowerCase().includes(sizeFilter)) {
+                    return false;
+                }
+                
+                // AtNo filter
+                if (atNoFilter && !String(item.AtNo || '').toLowerCase().includes(atNoFilter)) {
+                    return false;
+                }
+                
+                return true;
+            });
+
+            const filterInfo = [];
+            if (searchTerm) filterInfo.push(`search: "${searchTerm}"`);
+            if (colorFilter) filterInfo.push(`color: "${colorFilter}"`);
+            if (sizeFilter) filterInfo.push(`size: "${sizeFilter}"`);
+            if (atNoFilter) filterInfo.push(`AtNo: "${atNoFilter}"`);
+            if (selectedStore) filterInfo.push(`store: "${selectedStore}"`);
+
+            const filterText = filterInfo.length > 0 ? ` (with filters: ${filterInfo.join(', ')})` : '';
+
+            displayTableResults(filteredItems, `${window.selectedProduct} - ${filteredItems.length} of ${window.currentItems.length} items${filterText}`);
+        }
+
+        // Display results in a table with only the specified fields
+        function displayTableResults(items, title) {
+            const resultsDiv = document.getElementById('auto1-results');
+            
+            if (items.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No items found matching your criteria</div>';
+                return;
+            }
+            
+            let html = `<div class="results-info">${title}</div>`;
+            html += `<div style="overflow-x: auto;">`;
+            html += `<table>`;
+            
+            // Table header - only show specified fields
+            html += `<thead><tr>`;
+            AUTO1_DISPLAY_FIELDS.forEach(field => {
+                html += `<th>${field.displayName}</th>`;
+            });
+            html += `</tr></thead>`;
+            
+            // Table body - only show specified fields
+            html += `<tbody>`;
+            items.forEach(item => {
+                html += `<tr>`;
+                AUTO1_DISPLAY_FIELDS.forEach(field => {
+                    const value = getFieldValue(item, field.key);
+                    html += `<td title="${value}">${formatValue(value)}</td>`;
+                });
+                html += `</tr>`;
+            });
+            html += `</tbody>`;
+            html += `</table>`;
+            html += `</div>`;
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        // Helper function to get field value with proper fallbacks
+        function getFieldValue(item, field) {
+            const value = item[field];
+            
+            if (value === undefined || value === null) {
+                return 'N/A';
+            }
+            
+            // Handle timestamp objects
+            if (typeof value === 'object' && value.seconds !== undefined) {
+                const date = new Date(value.seconds * 1000);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            }
+            
+            // Handle nested objects
+            if (typeof value === 'object' && !Array.isArray(value)) {
+                try {
+                    return JSON.stringify(value);
+                } catch {
+                    return '[Object]';
+                }
+            }
+            
+            // Handle arrays
+            if (Array.isArray(value)) {
+                return value.join(', ');
+            }
+            
+            return value;
+        }
+
+        // Helper function to format values for display
+        function formatValue(value) {
+            if (value === 'N/A') return '<span style="color: #999; font-style: italic;">N/A</span>';
+            if (typeof value === 'string' && value.length > 50) {
+                return value.substring(0, 50) + '...';
+            }
+            return value;
+        }
+
+        // Add event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Product search
+            const productSearch = document.getElementById('productSearch');
+            productSearch.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase().trim();
+                if (searchTerm === '') {
+                    window.filteredProducts = [...window.products];
+                } else {
+                    window.filteredProducts = window.products.filter(product => 
+                        product.toLowerCase().includes(searchTerm)
+                    );
+                }
+                updateProductListDisplay();
+            });
+
+            // Item filters
+            const searchInput = document.getElementById('searchInput');
+            const colorFilter = document.getElementById('colorFilter');
+            const sizeFilter = document.getElementById('sizeFilter');
+            const atNoFilter = document.getElementById('atNoFilter');
+            const storeSelect = document.getElementById('storeSelect');
+            
+            // Debounce function to prevent too many updates
+            function debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            }
+            
+            // Apply filters to current items when any filter changes (with debounce)
+            const applyFilters = debounce(() => {
+                if (window.currentItems && window.currentItems.length > 0) {
+                    applyFiltersToCurrentItems();
+                }
+            }, 300);
+            
+            searchInput.addEventListener('input', applyFilters);
+            colorFilter.addEventListener('input', applyFilters);
+            sizeFilter.addEventListener('input', applyFilters);
+            atNoFilter.addEventListener('input', applyFilters);
+            storeSelect.addEventListener('change', applyFilters);
+
+            // Check if user is already authenticated
+            auth.onAuthStateChanged((user) => {
+                document.getElementById('auto1-logoutBtn').disabled = !user;
+                sendAuthUpdate(user);
+                
+                if (user) {
+                    initializeAuto1();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
