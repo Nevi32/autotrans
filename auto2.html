@@ -166,7 +166,7 @@
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, collection, getDocs, query, where, doc, getDoc, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, query, where, doc, getDoc, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         // Database configuration
         const DATABASE_CONFIG = {
@@ -218,24 +218,6 @@
             { key: 'cost', displayName: 'Cost' },
             { key: 'stock', displayName: 'Stock' },
             { key: 'active', displayName: 'Active' }
-        ];
-
-        // Define fields for Auto1 display (used for inventory)
-        const AUTO1_DISPLAY_FIELDS = [
-            { key: 'id', displayName: 'ID' },
-            { key: 'serialNo', displayName: 'Serial No' },
-            { key: 'AtNo', displayName: 'At No' },
-            { key: 'Product Name', displayName: 'Product Name' },
-            { key: 'Brand', displayName: 'Brand' },
-            { key: 'Color', displayName: 'Color' },
-            { key: 'Size', displayName: 'Size' },
-            { key: 'Price', displayName: 'Price' },
-            { key: 'Quantity', displayName: 'Quantity' },
-            { key: 'Gender', displayName: 'Gender' },
-            { key: 'Material', displayName: 'Material' },
-            { key: 'Style', displayName: 'Style' },
-            { key: 'storeId', displayName: 'Store ID' },
-            { key: 'setupName', displayName: 'Setup Name' }
         ];
 
         // Extract serializable user data
@@ -331,7 +313,7 @@
             fetchAuto2ProductList();
         }
 
-        // Fetch product list from Auto2 - FIXED VERSION
+        // Fetch product list from Auto2 - NO INDEX QUERIES
         async function fetchAuto2ProductList() {
             try {
                 const user = auth.currentUser;
@@ -342,63 +324,113 @@
 
                 sendStatus('Fetching product list from Auto2...', 'loading');
                 
-                // Get products collection
+                // Simple query without complex where clauses to avoid index requirements
                 const productsRef = collection(db, 'products');
-                const productsQuery = query(productsRef, where('active', '==', true), orderBy('updatedAt', 'desc'), limit(100));
+                const productsQuery = query(productsRef, limit(100)); // Simple limit only
                 const productsSnapshot = await getDocs(productsQuery);
                 
                 window.auto2Products = [];
                 productsSnapshot.forEach((doc) => {
                     const productData = doc.data();
-                    window.auto2Products.push({
-                        id: doc.id,
-                        name: productData.name || 'Unnamed Product',
-                        description: productData.description || '',
-                        category: productData.category || '',
-                        price: productData.price || 0,
-                        cost: productData.cost || 0,
-                        sku: productData.sku || '',
-                        active: productData.active !== false,
-                        createdAt: productData.createdAt,
-                        updatedAt: productData.updatedAt,
-                        variantIds: productData.variantIds || [],
-                        templateId: productData.templateId || '',
-                        images: productData.images || []
-                    });
+                    
+                    // Filter active products client-side (like React components do)
+                    if (productData.active !== false) {
+                        window.auto2Products.push({
+                            id: doc.id,
+                            name: productData.name || 'Unnamed Product',
+                            description: productData.description || '',
+                            category: productData.category || '',
+                            price: productData.price || 0,
+                            cost: productData.cost || 0,
+                            sku: productData.sku || '',
+                            active: true,
+                            createdAt: productData.createdAt,
+                            updatedAt: productData.updatedAt,
+                            variantIds: productData.variantIds || [],
+                            templateId: productData.templateId || '',
+                            images: productData.images || []
+                        });
+                    }
                 });
 
-                // Also try to fetch from inventory collection if products collection is empty
+                // Sort by updatedAt client-side
+                window.auto2Products.sort((a, b) => {
+                    const timeA = a.updatedAt?.seconds || 0;
+                    const timeB = b.updatedAt?.seconds || 0;
+                    return timeB - timeA; // Most recent first
+                });
+
+                // If no products found, try alternative collections
                 if (window.auto2Products.length === 0) {
-                    sendStatus('No products found in products collection, checking inventory...', 'loading');
-                    
-                    const inventoryRef = collection(db, 'inventory');
-                    const inventoryQuery = query(inventoryRef, limit(50));
-                    const inventorySnapshot = await getDocs(inventoryQuery);
-                    
-                    const productMap = new Map();
-                    
-                    inventorySnapshot.forEach((doc) => {
-                        const inventoryData = doc.data();
-                        if (inventoryData.productId && !productMap.has(inventoryData.productId)) {
-                            productMap.set(inventoryData.productId, {
-                                id: inventoryData.productId,
-                                name: `Product ${inventoryData.productId}`,
-                                description: 'Product from inventory data',
-                                variantIds: []
-                            });
-                        }
-                    });
-                    
-                    window.auto2Products = Array.from(productMap.values());
+                    sendStatus('No active products found, checking all collections...', 'loading');
+                    await checkAlternativeCollections();
                 }
 
                 window.auto2FilteredProducts = [...window.auto2Products];
                 updateAuto2ProductListDisplay();
-                sendStatus(`Found ${window.auto2Products.length} products in Auto2`, 'success');
+                sendStatus(`Found ${window.auto2Products.length} active products in Auto2`, 'success');
                 
             } catch (error) {
                 console.error('Error fetching Auto2 products:', error);
                 sendStatus('Error fetching Auto2 products: ' + error.message, 'error');
+            }
+        }
+
+        // Check alternative collections if products collection is empty
+        async function checkAlternativeCollections() {
+            try {
+                // Try inventory collection to find product references
+                const inventoryRef = collection(db, 'inventory');
+                const inventoryQuery = query(inventoryRef, limit(50));
+                const inventorySnapshot = await getDocs(inventoryQuery);
+                
+                const productMap = new Map();
+                
+                inventorySnapshot.forEach((doc) => {
+                    const inventoryData = doc.data();
+                    if (inventoryData.productId && !productMap.has(inventoryData.productId)) {
+                        productMap.set(inventoryData.productId, {
+                            id: inventoryData.productId,
+                            name: `Product ${inventoryData.productId}`,
+                            description: 'Product referenced in inventory',
+                            variantIds: []
+                        });
+                    }
+                });
+                
+                const inventoryProducts = Array.from(productMap.values());
+                if (inventoryProducts.length > 0) {
+                    window.auto2Products = [...window.auto2Products, ...inventoryProducts];
+                    sendStatus(`Found ${inventoryProducts.length} products from inventory references`, 'success');
+                }
+
+                // Try variants collection
+                const variantsRef = collection(db, 'variants');
+                const variantsQuery = query(variantsRef, limit(50));
+                const variantsSnapshot = await getDocs(variantsQuery);
+                
+                const variantProductMap = new Map();
+                
+                variantsSnapshot.forEach((doc) => {
+                    const variantData = doc.data();
+                    if (variantData.productId && !variantProductMap.has(variantData.productId)) {
+                        variantProductMap.set(variantData.productId, {
+                            id: variantData.productId,
+                            name: `Product ${variantData.productId}`,
+                            description: 'Product with variants',
+                            variantIds: [doc.id]
+                        });
+                    }
+                });
+                
+                const variantProducts = Array.from(variantProductMap.values());
+                if (variantProducts.length > 0) {
+                    window.auto2Products = [...window.auto2Products, ...variantProducts];
+                    sendStatus(`Found ${variantProducts.length} products from variant references`, 'success');
+                }
+
+            } catch (error) {
+                console.error('Error checking alternative collections:', error);
             }
         }
 
@@ -492,7 +524,7 @@
             sendStatus('Select a different product', 'success');
         }
 
-        // Auto2 Functions
+        // Auto2 Functions - NO INDEX QUERIES
         async function fetchAuto2Variants() {
             try {
                 const user = auth.currentUser;
@@ -503,30 +535,34 @@
 
                 sendStatus('Fetching variants from Auto2...', 'loading');
                 
+                // Get all variants and filter client-side
                 const variantsRef = collection(db, 'variants');
-                const q = query(variantsRef, where('productId', '==', window.selectedAuto2Product.id));
-                const querySnapshot = await getDocs(q);
+                const variantsQuery = query(variantsRef, limit(200)); // Simple limit
+                const querySnapshot = await getDocs(variantsQuery);
                 
                 window.auto2Variants = [];
                 querySnapshot.forEach((doc) => {
                     const variantData = doc.data();
-                    window.auto2Variants.push({
-                        id: doc.id,
-                        productId: variantData.productId,
-                        name: variantData.name || 'Unnamed Variant',
-                        sku: variantData.sku || '',
-                        color: variantData.color || '',
-                        size: variantData.size || '',
-                        price: variantData.price || 0,
-                        cost: variantData.cost || 0,
-                        stock: variantData.stock || 0,
-                        active: variantData.active !== false,
-                        ...variantData
-                    });
+                    // Filter by productId client-side
+                    if (variantData.productId === window.selectedAuto2Product.id && variantData.active !== false) {
+                        window.auto2Variants.push({
+                            id: doc.id,
+                            productId: variantData.productId,
+                            name: variantData.name || 'Unnamed Variant',
+                            sku: variantData.sku || '',
+                            color: variantData.color || '',
+                            size: variantData.size || '',
+                            price: variantData.price || 0,
+                            cost: variantData.cost || 0,
+                            stock: variantData.stock || 0,
+                            active: true,
+                            ...variantData
+                        });
+                    }
                 });
 
                 displayAuto2Variants();
-                sendStatus(`Found ${window.auto2Variants.length} variants in Auto2`, 'success');
+                sendStatus(`Found ${window.auto2Variants.length} variants for this product`, 'success');
                 
             } catch (error) {
                 console.error('Error fetching Auto2 variants:', error);
@@ -544,26 +580,30 @@
 
                 sendStatus('Fetching inventory from Auto2...', 'loading');
                 
+                // Get all inventory and filter client-side
                 const inventoryRef = collection(db, 'inventory');
-                const q = query(inventoryRef, where('productId', '==', window.selectedAuto2Product.id));
-                const querySnapshot = await getDocs(q);
+                const inventoryQuery = query(inventoryRef, limit(200)); // Simple limit
+                const querySnapshot = await getDocs(inventoryQuery);
                 
                 window.auto2Inventory = [];
                 querySnapshot.forEach((doc) => {
                     const inventoryData = doc.data();
-                    window.auto2Inventory.push({
-                        id: doc.id,
-                        productId: inventoryData.productId,
-                        variantId: inventoryData.variantId,
-                        kioskId: inventoryData.kioskId,
-                        quantity: inventoryData.quantity || 0,
-                        lastUpdated: inventoryData.lastUpdated,
-                        ...inventoryData
-                    });
+                    // Filter by productId client-side
+                    if (inventoryData.productId === window.selectedAuto2Product.id) {
+                        window.auto2Inventory.push({
+                            id: doc.id,
+                            productId: inventoryData.productId,
+                            variantId: inventoryData.variantId,
+                            kioskId: inventoryData.kioskId,
+                            quantity: inventoryData.quantity || 0,
+                            lastUpdated: inventoryData.lastUpdated,
+                            ...inventoryData
+                        });
+                    }
                 });
 
                 displayAuto2Inventory();
-                sendStatus(`Found ${window.auto2Inventory.length} inventory items in Auto2`, 'success');
+                sendStatus(`Found ${window.auto2Inventory.length} inventory items for this product`, 'success');
                 
             } catch (error) {
                 console.error('Error fetching Auto2 inventory:', error);
