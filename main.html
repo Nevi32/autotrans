@@ -173,15 +173,33 @@
             const data = event.data;
             
             if (data.type === 'authUpdate') {
+                // Only store basic user info, not the full Firebase user object
                 if (data.database === 'auto1') {
-                    window.auto1User = data.user;
+                    window.auto1User = data.user ? {
+                        uid: data.user.uid,
+                        email: data.user.email,
+                        displayName: data.user.displayName
+                    } : null;
                 } else if (data.database === 'auto2') {
-                    window.auto2User = data.user;
+                    window.auto2User = data.user ? {
+                        uid: data.user.uid,
+                        email: data.user.email,
+                        displayName: data.user.displayName
+                    } : null;
                 }
                 updateAuthStatusDisplay();
             } else if (data.type === 'status') {
                 showStatus(data.message, data.statusType);
             }
+        });
+
+        // Send auth status request to iframes when they load
+        document.getElementById('auto1-iframe').addEventListener('load', function() {
+            this.contentWindow.postMessage({ type: 'getAuthStatus' }, '*');
+        });
+
+        document.getElementById('auto2-iframe').addEventListener('load', function() {
+            this.contentWindow.postMessage({ type: 'getAuthStatus' }, '*');
         });
 
         // Initialize auth status display
