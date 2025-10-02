@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto2 Database</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0;
+            padding: 20px;
+            line-height: 1.4;
+        }
+        .auth-section { 
+            margin-bottom: 20px; 
+            padding: 15px; 
+            border: 1px solid #ccc; 
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+        button { 
+            padding: 8px 16px; 
+            margin: 5px; 
+            cursor: pointer;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover { background: #218838; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        input, select { 
+            padding: 8px; 
+            margin: 5px; 
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .product-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .product-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .product-item:hover {
+            background: #f0f0f0;
+        }
+        .product-item.selected {
+            background: #28a745;
+            color: white;
+        }
+        .search-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #28a745;
+        }
+        .results-info {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+            border-left: 4px solid #28a745;
+        }
+        .product-section {
+            margin: 15px 0;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            text-align: left; 
+            vertical-align: top;
+        }
+        th { background: #f8f9fa; position: sticky; top: 0; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        tr:hover { background: #f0f0f0; }
+        .variant-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .variant-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #28a745;
+        }
+        .inventory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .inventory-item {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- Authentication Section -->
+    <div class="auth-section">
+        <h3>Auto2 Database Authentication</h3>
+        <div>
+            <input type="email" id="auto2-email" placeholder="Auto2 Email">
+            <input type="password" id="auto2-password" placeholder="Auto2 Password">
+            <button onclick="loginAuto2()">Login to Auto2</button>
+            <button onclick="logoutAuto2()" disabled id="auto2-logoutBtn">Logout from Auto2</button>
+        </div>
+    </div>
+
+    <!-- Product Selection Section -->
+    <div class="product-section" id="auto2ProductSection" style="display: none;">
+        <div class="section-title">Auto2: Select a Product</div>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <button onclick="fetchAuto2ProductList()" id="refreshAuto2ProductsBtn">Refresh Product List</button>
+            <input type="text" id="auto2ProductSearch" placeholder="Search products..." style="flex: 1;">
+            <span id="auto2ProductCount" style="padding: 8px; color: #666;">0 products found</span>
+        </div>
+        <div class="product-list" id="auto2ProductList"></div>
+    </div>
+
+    <!-- Product Details and Variants -->
+    <div class="search-section" id="auto2FilterSection" style="display: none;">
+        <div class="section-title">Auto2: Product Details - <span id="selectedAuto2ProductName" style="color: #28a745;"></span></div>
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <button onclick="fetchAuto2Variants()" id="fetchAuto2VariantsBtn">Fetch Variants</button>
+            <button onclick="fetchAuto2Inventory()" id="fetchAuto2InventoryBtn">Fetch Inventory</button>
+            <button onclick="resetAuto2ToProductSelection()">Change Product</button>
+        </div>
+
+        <!-- Product Details -->
+        <div id="auto2ProductDetails" style="display: none;">
+            <h4>Product Information</h4>
+            <div id="auto2ProductInfo" class="variant-card"></div>
+        </div>
+    </div>
+
+    <!-- Auto2 Results -->
+    <div id="auto2-results"></div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // Database configuration
+        const DATABASE_CONFIG = {
+            apiKey: "AIzaSyCxwtFc3X85KJ17ewqitt6nInFQUzZdJSQ",
+            authDomain: "autosms20.firebaseapp.com",
+            projectId: "autosms20",
+            storageBucket: "autosms20.firebasestorage.app",
+            messagingSenderId: "172090772417",
+            appId: "1:172090772417:web:e1312aeadb695b5df7bd40",
+            measurementId: "G-J5W5YQKF80"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(DATABASE_CONFIG, 'auto2');
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Global variables
+        window.auto2Products = [];
+        window.auto2FilteredProducts = [];
+        window.selectedAuto2Product = null;
+        window.auto2Variants = [];
+        window.auto2Inventory = [];
+        window.auto2ProductDetails = {};
+
+        // Define fields for Auto2 Products
+        const AUTO2_PRODUCT_FIELDS = [
+            { key: 'id', displayName: 'ID' },
+            { key: 'name', displayName: 'Name' },
+            { key: 'description', displayName: 'Description' },
+            { key: 'category', displayName: 'Category' },
+            { key: 'price', displayName: 'Price' },
+            { key: 'cost', displayName: 'Cost' },
+            { key: 'sku', displayName: 'SKU' },
+            { key: 'active', displayName: 'Active' },
+            { key: 'createdAt', displayName: 'Created' },
+            { key: 'updatedAt', displayName: 'Updated' }
+        ];
+
+        // Define fields for Auto2 Variants
+        const AUTO2_VARIANT_FIELDS = [
+            { key: 'id', displayName: 'ID' },
+            { key: 'productId', displayName: 'Product ID' },
+            { key: 'name', displayName: 'Name' },
+            { key: 'sku', displayName: 'SKU' },
+            { key: 'color', displayName: 'Color' },
+            { key: 'size', displayName: 'Size' },
+            { key: 'price', displayName: 'Price' },
+            { key: 'cost', displayName: 'Cost' },
+            { key: 'stock', displayName: 'Stock' },
+            { key: 'active', displayName: 'Active' }
+        ];
+
+        // Define fields for Auto1 display (used for inventory)
+        const AUTO1_DISPLAY_FIELDS = [
+            { key: 'id', displayName: 'ID' },
+            { key: 'serialNo', displayName: 'Serial No' },
+            { key: 'AtNo', displayName: 'At No' },
+            { key: 'Product Name', displayName: 'Product Name' },
+            { key: 'Brand', displayName: 'Brand' },
+            { key: 'Color', displayName: 'Color' },
+            { key: 'Size', displayName: 'Size' },
+            { key: 'Price', displayName: 'Price' },
+            { key: 'Quantity', displayName: 'Quantity' },
+            { key: 'Gender', displayName: 'Gender' },
+            { key: 'Material', displayName: 'Material' },
+            { key: 'Style', displayName: 'Style' },
+            { key: 'storeId', displayName: 'Store ID' },
+            { key: 'setupName', displayName: 'Setup Name' }
+        ];
+
+        // Authentication functions
+        window.loginAuto2 = async function() {
+            const email = document.getElementById('auto2-email').value;
+            const password = document.getElementById('auto2-password').value;
+            
+            if (!email || !password) {
+                sendStatus('Please enter Auto2 email and password', 'error');
+                return;
+            }
+
+            sendStatus('Logging into Auto2 database...', 'loading');
+            
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                document.getElementById('auto2-logoutBtn').disabled = false;
+                sendAuthUpdate(userCredential.user);
+                sendStatus('Successfully logged into Auto2 database!', 'success');
+                
+                initializeAuto2();
+            } catch (error) {
+                sendStatus('Auto2 login failed: ' + error.message, 'error');
+            }
+        };
+
+        window.logoutAuto2 = async function() {
+            try {
+                await signOut(auth);
+                document.getElementById('auto2-logoutBtn').disabled = true;
+                sendAuthUpdate(null);
+                sendStatus('Logged out from Auto2 database', 'success');
+                
+                // Reset interface
+                document.getElementById('auto2ProductSection').style.display = 'none';
+                document.getElementById('auto2FilterSection').style.display = 'none';
+                document.getElementById('auto2ProductDetails').style.display = 'none';
+                document.getElementById('auto2-results').innerHTML = '';
+            } catch (error) {
+                sendStatus('Auto2 logout failed: ' + error.message, 'error');
+            }
+        };
+
+        // Send auth update to parent
+        function sendAuthUpdate(user) {
+            window.parent.postMessage({
+                type: 'authUpdate',
+                database: 'auto2',
+                user: user
+            }, '*');
+        }
+
+        // Send status to parent
+        function sendStatus(message, type) {
+            window.parent.postMessage({
+                type: 'status',
+                message: message,
+                statusType: type
+            }, '*');
+        }
+
+        // Initialize Auto2 interface
+        function initializeAuto2() {
+            document.getElementById('auto2ProductSection').style.display = 'block';
+            fetchAuto2ProductList();
+        }
+
+        // Fetch product list from Auto2
+        async function fetchAuto2ProductList() {
+            try {
+                const user = auth.currentUser;
+                if (!user) {
+                    sendStatus('Please log in to Auto2 database', 'error');
+                    return;
+                }
+
+                sendStatus('Fetching product list from Auto2...', 'loading');
+                
+                const productsRef = collection(db, 'products');
+                const querySnapshot = await getDocs(productsRef);
+                
+                window.auto2Products = [];
+                querySnapshot.forEach((doc) => {
+                    const productData = doc.data();
+                    window.auto2Products.push({
+                        id: doc.id,
+                        ...productData
+                    });
+                });
+
+                window.auto2FilteredProducts = [...window.auto2Products];
+                updateAuto2ProductListDisplay();
+                sendStatus(`Found ${window.auto2Products.length} products in Auto2`, 'success');
+                
+            } catch (error) {
+                console.error('Error fetching Auto2 products:', error);
+                sendStatus('Error fetching Auto2 products: ' + error.message, 'error');
+            }
+        }
+
+        // Update Auto2 product list display
+        function updateAuto2ProductListDisplay() {
+            const productList = document.getElementById('auto2ProductList');
+            const productCount = document.getElementById('auto2ProductCount');
+            
+            productList.innerHTML = '';
+            productCount.textContent = `${window.auto2FilteredProducts.length} products found`;
+            
+            if (window.auto2FilteredProducts.length === 0) {
+                productList.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No products found</div>';
+                return;
+            }
+            
+            window.auto2FilteredProducts.forEach(product => {
+                const productItem = document.createElement('div');
+                productItem.className = 'product-item';
+                if (window.selectedAuto2Product && window.selectedAuto2Product.id === product.id) {
+                    productItem.className += ' selected';
+                }
+                
+                const productName = product.name || product.id;
+                const productDescription = product.description ? ` - ${product.description}` : '';
+                
+                productItem.innerHTML = `
+                    <div><strong>${productName}</strong>${productDescription}</div>
+                    <div style="font-size: 12px; color: #666;">ID: ${product.id}</div>
+                `;
+                
+                productItem.onclick = () => selectAuto2Product(product);
+                productList.appendChild(productItem);
+            });
+        }
+
+        // Select a product in Auto2
+        async function selectAuto2Product(product) {
+            window.selectedAuto2Product = product;
+            window.auto2ProductDetails = product;
+            updateAuto2ProductListDisplay();
+            
+            // Show filter section
+            document.getElementById('auto2FilterSection').style.display = 'block';
+            document.getElementById('selectedAuto2ProductName').textContent = product.name || product.id;
+            
+            // Display product details
+            displayAuto2ProductDetails(product);
+            
+            // Clear previous results
+            document.getElementById('auto2-results').innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">Select an action above</div>';
+        }
+
+        // Display Auto2 product details
+        function displayAuto2ProductDetails(product) {
+            const productInfoDiv = document.getElementById('auto2ProductInfo');
+            document.getElementById('auto2ProductDetails').style.display = 'block';
+            
+            let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">';
+            
+            AUTO2_PRODUCT_FIELDS.forEach(field => {
+                const value = getFieldValue(product, field.key);
+                if (value !== 'N/A') {
+                    html += `
+                        <div style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+                            <div style="font-weight: bold; font-size: 12px; color: #666;">${field.displayName}</div>
+                            <div style="margin-top: 4px;">${formatValue(value)}</div>
+                        </div>
+                    `;
+                }
+            });
+            
+            html += '</div>';
+            productInfoDiv.innerHTML = html;
+        }
+
+        // Reset to product selection
+        function resetAuto2ToProductSelection() {
+            window.selectedAuto2Product = null;
+            window.auto2ProductDetails = {};
+            window.auto2Variants = [];
+            window.auto2Inventory = [];
+            document.getElementById('auto2FilterSection').style.display = 'none';
+            document.getElementById('auto2ProductDetails').style.display = 'none';
+            document.getElementById('auto2-results').innerHTML = '';
+            updateAuto2ProductListDisplay();
+            sendStatus('Select a different product', 'success');
+        }
+
+        // Auto2 Functions
+        async function fetchAuto2Variants() {
+            try {
+                const user = auth.currentUser;
+                if (!user || !window.selectedAuto2Product) {
+                    sendStatus('Please select a product first', 'error');
+                    return;
+                }
+
+                sendStatus('Fetching variants from Auto2...', 'loading');
+                
+                const variantsRef = collection(db, 'variants');
+                const q = query(variantsRef, where('productId', '==', window.selectedAuto2Product.id));
+                const querySnapshot = await getDocs(q);
+                
+                window.auto2Variants = [];
+                querySnapshot.forEach((doc) => {
+                    window.auto2Variants.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+
+                displayAuto2Variants();
+                sendStatus(`Found ${window.auto2Variants.length} variants in Auto2`, 'success');
+                
+            } catch (error) {
+                console.error('Error fetching Auto2 variants:', error);
+                sendStatus('Error fetching Auto2 variants: ' + error.message, 'error');
+            }
+        }
+
+        async function fetchAuto2Inventory() {
+            try {
+                const user = auth.currentUser;
+                if (!user || !window.selectedAuto2Product) {
+                    sendStatus('Please select a product first', 'error');
+                    return;
+                }
+
+                sendStatus('Fetching inventory from Auto2...', 'loading');
+                
+                const inventoryRef = collection(db, 'inventory');
+                const q = query(inventoryRef, where('productId', '==', window.selectedAuto2Product.id));
+                const querySnapshot = await getDocs(q);
+                
+                window.auto2Inventory = [];
+                querySnapshot.forEach((doc) => {
+                    window.auto2Inventory.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+
+                displayAuto2Inventory();
+                sendStatus(`Found ${window.auto2Inventory.length} inventory items in Auto2`, 'success');
+                
+            } catch (error) {
+                console.error('Error fetching Auto2 inventory:', error);
+                sendStatus('Error fetching Auto2 inventory: ' + error.message, 'error');
+            }
+        }
+
+        // Display Auto2 variants in a grid
+        function displayAuto2Variants() {
+            const resultsDiv = document.getElementById('auto2-results');
+            
+            if (window.auto2Variants.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No variants found for this product</div>';
+                return;
+            }
+            
+            let html = `<div class="results-info">Variants for ${window.selectedAuto2Product.name || window.selectedAuto2Product.id} (${window.auto2Variants.length} variants)</div>`;
+            html += `<div class="variant-grid">`;
+            
+            window.auto2Variants.forEach(variant => {
+                html += `<div class="variant-card">`;
+                html += `<h4 style="margin-top: 0; color: #28a745;">${variant.name || 'Variant ' + variant.id}</h4>`;
+                
+                AUTO2_VARIANT_FIELDS.forEach(field => {
+                    const value = getFieldValue(variant, field.key);
+                    if (value !== 'N/A') {
+                        html += `
+                            <div style="margin-bottom: 8px;">
+                                <strong>${field.displayName}:</strong> ${formatValue(value)}
+                            </div>
+                        `;
+                    }
+                });
+                
+                html += `</div>`;
+            });
+            
+            html += `</div>`;
+            resultsDiv.innerHTML = html;
+        }
+
+        // Display Auto2 inventory
+        function displayAuto2Inventory() {
+            const resultsDiv = document.getElementById('auto2-results');
+            
+            if (window.auto2Inventory.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No inventory found for this product</div>';
+                return;
+            }
+            
+            let html = `<div class="results-info">Inventory for ${window.selectedAuto2Product.name || window.selectedAuto2Product.id} (${window.auto2Inventory.length} items)</div>`;
+            html += `<div style="overflow-x: auto;">`;
+            html += `<table>`;
+            
+            // Table header
+            html += `<thead><tr>`;
+            AUTO1_DISPLAY_FIELDS.forEach(field => {
+                html += `<th>${field.displayName}</th>`;
+            });
+            html += `</tr></thead>`;
+            
+            // Table body
+            html += `<tbody>`;
+            window.auto2Inventory.forEach(item => {
+                html += `<tr>`;
+                AUTO1_DISPLAY_FIELDS.forEach(field => {
+                    const value = getFieldValue(item, field.key);
+                    html += `<td title="${value}">${formatValue(value)}</td>`;
+                });
+                html += `</tr>`;
+            });
+            html += `</tbody>`;
+            html += `</table>`;
+            html += `</div>`;
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        // Helper function to get field value with proper fallbacks
+        function getFieldValue(item, field) {
+            const value = item[field];
+            
+            if (value === undefined || value === null) {
+                return 'N/A';
+            }
+            
+            // Handle timestamp objects
+            if (typeof value === 'object' && value.seconds !== undefined) {
+                const date = new Date(value.seconds * 1000);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            }
+            
+            // Handle nested objects
+            if (typeof value === 'object' && !Array.isArray(value)) {
+                try {
+                    return JSON.stringify(value);
+                } catch {
+                    return '[Object]';
+                }
+            }
+            
+            // Handle arrays
+            if (Array.isArray(value)) {
+                return value.join(', ');
+            }
+            
+            return value;
+        }
+
+        // Helper function to format values for display
+        function formatValue(value) {
+            if (value === 'N/A') return '<span style="color: #999; font-style: italic;">N/A</span>';
+            if (typeof value === 'string' && value.length > 50) {
+                return value.substring(0, 50) + '...';
+            }
+            return value;
+        }
+
+        // Add event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Auto2 product search
+            const auto2ProductSearch = document.getElementById('auto2ProductSearch');
+            auto2ProductSearch.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase().trim();
+                if (searchTerm === '') {
+                    window.auto2FilteredProducts = [...window.auto2Products];
+                } else {
+                    window.auto2FilteredProducts = window.auto2Products.filter(product => 
+                        JSON.stringify(product).toLowerCase().includes(searchTerm)
+                    );
+                }
+                updateAuto2ProductListDisplay();
+            });
+
+            // Check if user is already authenticated
+            auth.onAuthStateChanged((user) => {
+                document.getElementById('auto2-logoutBtn').disabled = !user;
+                sendAuthUpdate(user);
+                
+                if (user) {
+                    initializeAuto2();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
